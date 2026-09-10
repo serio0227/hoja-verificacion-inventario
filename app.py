@@ -5,11 +5,11 @@ import streamlit as st
 from openpyxl.styles import Alignment, Font, PatternFill
 
 
+# ---------------- CONFIGURACIÓN ----------------
 st.set_page_config(
-    page_title="Control de Inventario",
-    page_icon="📦",
+    page_title="Control de inventario",
+    page_icon="📋",
     layout="wide",
-    initial_sidebar_state="collapsed",
 )
 
 CRITERIOS = [
@@ -24,10 +24,12 @@ CRITERIOS = [
 ]
 
 
+# ---------------- FUNCIONES ----------------
 def tabla_inicial():
     datos = {
-        "Día": [f"Día {i}" for i in range(1, 13)],
-        "Fecha": [None] * 12,
+        "Día": [f"Día {numero}" for numero in range(1, 13)],
+        # Esta línea evita el error de Streamlit con la columna Fecha
+        "Fecha": pd.Series([pd.NaT] * 12, dtype="datetime64[ns]"),
         "Observaciones": [""] * 12,
     }
 
@@ -37,43 +39,65 @@ def tabla_inicial():
     return pd.DataFrame(datos)
 
 
+def normalizar_fechas(datos):
+    """Convierte la columna Fecha al formato compatible con Streamlit."""
+    datos = datos.copy()
+    datos["Fecha"] = pd.to_datetime(datos["Fecha"], errors="coerce")
+    return datos
+
+
 def crear_excel(datos):
     salida = BytesIO()
 
-    with pd.ExcelWriter(salida, engine="openpyxl") as writer:
-        datos.to_excel(writer, index=False, sheet_name="Verificación")
+    with pd.ExcelWriter(salida, engine="openpyxl") as escritor:
+        datos.to_excel(escritor, index=False, sheet_name="Verificación")
 
-        hoja = writer.book["Verificación"]
+        hoja = escritor.book["Verificación"]
         hoja.freeze_panes = "A2"
 
-        color_titulo = PatternFill("solid", fgColor="123B5D")
+        color_encabezado = PatternFill(
+            start_color="123B5D",
+            end_color="123B5D",
+            fill_type="solid",
+        )
 
         for celda in hoja[1]:
             celda.font = Font(bold=True, color="FFFFFF")
-            celda.fill = color_titulo
-            celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            celda.fill = color_encabezado
+            celda.alignment = Alignment(
+                horizontal="center",
+                vertical="center",
+                wrap_text=True,
+            )
+
+        for fila in hoja.iter_rows(min_row=2):
+            for celda in fila:
+                celda.alignment = Alignment(
+                    vertical="center",
+                    wrap_text=True,
+                )
 
         for columna in hoja.columns:
             letra = columna[0].column_letter
             ancho = max(len(str(celda.value or "")) for celda in columna) + 3
-            hoja.column_dimensions[letra].width = min(ancho, 34)
+            hoja.column_dimensions[letra].width = min(ancho, 32)
+
+        hoja.row_dimensions[1].height = 38
 
     return salida.getvalue()
 
 
-def calcular_indicadores(datos):
-    total_marcas = int(datos[CRITERIOS].sum().sum())
-    entradas_observadas = int(datos["Entrada de material observada"].sum())
-    salidas_observadas = int(datos["Salida de producto observada"].sum())
-    conteos_realizados = int(datos["Conteo físico realizado"].sum())
-
-    return total_marcas, entradas_observadas, salidas_observadas, conteos_realizados
-
-
+# ---------------- ESTADO INICIAL ----------------
 if "datos_verificacion" not in st.session_state:
     st.session_state.datos_verificacion = tabla_inicial()
 
+# Convierte cualquier dato anterior de fecha para que no vuelva a generar error
+st.session_state.datos_verificacion = normalizar_fechas(
+    st.session_state.datos_verificacion
+)
 
+
+# ---------------- DISEÑO ----------------
 st.markdown(
     """
     <style>
@@ -81,145 +105,199 @@ st.markdown(
             background: #f4f7fb;
         }
 
-        .bloque-principal {
-            background: linear-gradient(135deg, #123b5d, #1f6f8b);
-            padding: 30px;
-            border-radius: 22px;
-            color: white;
-            margin-bottom: 22px;
-            box-shadow: 0 12px 30px rgba(18, 59, 93, 0.20);
+        .titulo-principal {
+            color: #123b5d;
+            font-size: 2.3rem;
+            font-weight: 800;
+            margin-bottom: 0;
         }
 
-        .bloque-principal h1 {
+        .subtitulo {
+            color: #587083;
+            font-size: 1.08rem;
+            margin-top: 0;
+        }
+
+        .tarjeta {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            border-left: 6px solid #1d7f70;
+            box-shadow: 0 3px 10px rgba(18, 59, 93, 0.08);
+            min-height: 115px;
+        }
+
+        .numero {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #123b5d;
             margin: 0;
-            font-size: 35px;
         }
 
-        .bloque-principal p {
-            margin: 8px 0 0;
-            font-size: 16px;
-            opacity: 0.92;
+        .texto-tarjeta {
+            color: #587083;
+            font-size: 0.9rem;
+            margin: 0;
         }
 
-        .tarjeta-info {
-            background: white;
-            border-radius: 16px;
-            padding: 16px;
-            border: 1px solid #dce5ec;
-            box-shadow: 0 4px 12px rgba(18, 59, 93, 0.08);
+        div.stButton > button {
+            border-radius: 9px;
+            font-weight: 700;
+            min-height: 44px;
         }
 
-        div[data-testid="stMetric"] {
-            background: white;
-            border: 1px solid #dce5ec;
-            border-radius: 16px;
-            padding: 16px;
-            box-shadow: 0 4px 12px rgba(18, 59, 93, 0.08);
-        }
-
-        div[data-testid="stDownloadButton"] button {
-            background: #087f6b;
+        div.stDownloadButton > button {
+            border-radius: 9px;
+            font-weight: 700;
+            min-height: 44px;
+            background-color: #147d6f;
             color: white;
             border: none;
-            font-weight: 700;
         }
 
-        div[data-testid="stDownloadButton"] button:hover {
-            background: #066b5a;
-            color: white;
-        }
+        @media (max-width: 700px) {
+            .titulo-principal {
+                font-size: 1.65rem;
+            }
 
-        .stButton button {
-            border-radius: 10px;
-            font-weight: 700;
+            .tarjeta {
+                padding: 14px;
+                min-height: 95px;
+            }
         }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+
+# ---------------- ENCABEZADO ----------------
 st.markdown(
-    """
-    <div class="bloque-principal">
-        <h1>📦 Hoja de verificación de inventario</h1>
-        <p>Registro diario de entradas, consumos, salidas y conteos físicos durante 12 días.</p>
-    </div>
-    """,
+    '<p class="titulo-principal">📋 Hoja de verificación</p>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<p class="subtitulo">Control diario de inventario · Registro de 12 días</p>',
     unsafe_allow_html=True,
 )
 
-total_marcas, entradas, salidas, conteos = calcular_indicadores(
-    st.session_state.datos_verificacion
+st.info(
+    "Marca las casillas cuando la actividad haya sido observada o realizada. "
+    "Puedes registrar observaciones y descargar el resultado en Excel."
 )
+
+
+# ---------------- INDICADORES ----------------
+datos_actuales = st.session_state.datos_verificacion
+total_casillas = len(datos_actuales) * len(CRITERIOS)
+casillas_marcadas = int(datos_actuales[CRITERIOS].sum().sum())
+avance = round((casillas_marcadas / total_casillas) * 100) if total_casillas else 0
+dias_con_actividad = int(datos_actuales[CRITERIOS].any(axis=1).sum())
 
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("✅ Marcas registradas", total_marcas)
-col2.metric("📥 Entradas observadas", entradas)
-col3.metric("📤 Salidas observadas", salidas)
-col4.metric("📋 Conteos físicos", conteos)
-
-st.markdown("### Registro de verificación")
-st.caption("Marca las casillas cuando la actividad se haya observado o realizado.")
-
-with st.form("formulario_verificacion"):
-    configuracion = {
-        "Día": st.column_config.TextColumn("Día", disabled=True, width="small"),
-        "Fecha": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
-        "Observaciones": st.column_config.TextColumn(
-            "Observaciones",
-            width="large",
-            help="Escribe novedades o hallazgos importantes.",
-        ),
-    }
-
-    for criterio in CRITERIOS:
-        configuracion[criterio] = st.column_config.CheckboxColumn(
-            criterio,
-            width="medium",
-        )
-
-    datos_editados = st.data_editor(
-        st.session_state.datos_verificacion,
-        column_config=configuracion,
-        hide_index=True,
-        use_container_width=True,
-        num_rows="fixed",
-        key="editor_verificacion",
+with col1:
+    st.markdown(
+        f'<div class="tarjeta"><p class="numero">12</p>'
+        f'<p class="texto-tarjeta">Días de verificación</p></div>',
+        unsafe_allow_html=True,
     )
 
-    guardar = st.form_submit_button(
-        "💾 Guardar registros",
-        type="primary",
-        use_container_width=True,
+with col2:
+    st.markdown(
+        f'<div class="tarjeta"><p class="numero">{casillas_marcadas}</p>'
+        f'<p class="texto-tarjeta">Actividades registradas</p></div>',
+        unsafe_allow_html=True,
     )
 
-if guardar:
-    st.session_state.datos_verificacion = datos_editados.copy()
-    st.success("Registros guardados correctamente.")
+with col3:
+    st.markdown(
+        f'<div class="tarjeta"><p class="numero">{dias_con_actividad}</p>'
+        f'<p class="texto-tarjeta">Días con actividad</p></div>',
+        unsafe_allow_html=True,
+    )
 
-st.markdown("### Acciones")
+with col4:
+    st.markdown(
+        f'<div class="tarjeta"><p class="numero">{avance}%</p>'
+        f'<p class="texto-tarjeta">Avance de verificación</p></div>',
+        unsafe_allow_html=True,
+    )
 
-accion1, accion2 = st.columns(2)
+st.write("")
+st.subheader("Registro diario")
 
-with accion1:
-    if st.button("🗑️ Limpiar todos los registros", use_container_width=True):
+
+# ---------------- BOTÓN LIMPIAR ----------------
+col_limpiar, col_espacio = st.columns([1, 4])
+
+with col_limpiar:
+    if st.button("🗑️ Limpiar registros", use_container_width=True):
         st.session_state.datos_verificacion = tabla_inicial()
-        st.session_state.pop("editor_verificacion", None)
+
+        # Elimina el estado anterior del editor para mostrar la tabla limpia
+        if "editor_verificacion" in st.session_state:
+            del st.session_state["editor_verificacion"]
+
         st.rerun()
 
-with accion2:
-    archivo_excel = crear_excel(st.session_state.datos_verificacion)
 
-    st.download_button(
-        "⬇️ Descargar reporte en Excel",
-        data=archivo_excel,
-        file_name="hoja_verificacion_inventario.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+# ---------------- TABLA EDITABLE ----------------
+datos_para_editar = normalizar_fechas(
+    st.session_state.datos_verificacion
+)
+
+configuracion_columnas = {
+    "Día": st.column_config.TextColumn(
+        "Día",
+        disabled=True,
+        width="small",
+    ),
+    "Fecha": st.column_config.DateColumn(
+        "Fecha",
+        format="DD/MM/YYYY",
+        width="medium",
+    ),
+    "Observaciones": st.column_config.TextColumn(
+        "Observaciones",
+        width="large",
+    ),
+}
+
+for criterio in CRITERIOS:
+    configuracion_columnas[criterio] = st.column_config.CheckboxColumn(
+        criterio,
+        help="Marca si esta actividad fue observada o realizada.",
+        width="medium",
     )
 
-st.info(
-    "Para incluir los últimos cambios en el Excel, primero pulsa “Guardar registros” "
-    "y después descarga el reporte."
+datos_editados = st.data_editor(
+    datos_para_editar,
+    column_config=configuracion_columnas,
+    hide_index=True,
+    use_container_width=True,
+    num_rows="fixed",
+    key="editor_verificacion",
+)
+
+# Guarda los cambios realizados en la tabla
+st.session_state.datos_verificacion = normalizar_fechas(datos_editados)
+
+
+# ---------------- EXPORTACIÓN ----------------
+st.write("")
+st.subheader("Exportar información")
+
+archivo_excel = crear_excel(st.session_state.datos_verificacion)
+
+st.download_button(
+    label="📥 Descargar reporte en Excel",
+    data=archivo_excel,
+    file_name="hoja_verificacion_inventario.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    use_container_width=True,
+)
+
+st.caption(
+    "El archivo descargado contiene los 12 días, fechas, casillas marcadas y observaciones."
 )
